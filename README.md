@@ -44,12 +44,23 @@ Included: `goamdsmi.go`, `goamdsmi_shim/`, `LICENSE`.
   Fixed by casting to `*[256]C.char` (same memory, pointer to first row).
   Go API is unchanged.
 
-`goamdsmi_shim/` is unmodified.
+- `goamdsmi_shim/smiwrapper/amdsmi_go_shim.c`: upstream develop targets
+  amd-smi 27.x and does not compile against amd-smi 26.x (ROCm 7.1 / 7.2).
+  Added compile-time guards so the shim builds against both:
+  - `AMDSMI_LIB_VERSION_MAJOR < 27`: alias `amdsmi_processor_type_t` to the
+    old name `processor_type_t`, and declare
+    `amdsmi_get_processor_handles_by_type()` (exported by libamd_smi 26.x, but
+    only declared under `ENABLE_ESMI_LIB`).
+  - UMA carveout / TTM wrappers are compiled only if the header defines
+    `AMDSMI_MAX_CARVEOUT_OPTIONS`; otherwise they return `-1`.
+
+  Verified: builds against ROCm 7.1.1 and 7.2.4 (amd-smi 26.2) and
+  syntax-checks against the develop header (amd-smi 27.1).
 
 ## Install
 
 ```
-go get github.com/ichbinblau/goamdsmi
+go get github.com/ichbinblau/goamdsmi@latest
 ```
 
 ## Usage
@@ -62,20 +73,38 @@ defer goamdsmi.GO_gpu_shutdown()
 n := int(goamdsmi.GO_gpu_num_monitor_devices())
 ```
 
-## Build prerequisite (cgo)
+## Build prerequisite (cgo shim)
 
-This is a cgo wrapper linking `libgoamdsmi_shim64.so`. Building/running requires,
-from a ROCm install (or built from `goamdsmi_shim/` against the full amdsmi lib):
+This is a cgo wrapper that links `libgoamdsmi_shim64.so`, which in turn calls
+`libamd_smi.so`. Regular ROCm installs do **not** ship the shim; build it from
+`goamdsmi_shim/` (needs gcc and ROCm with amd-smi headers). Run this inside
+your module after `go get`, so the shim source matches the Go binding version:
 
-- `/opt/rocm/include/amdsmi_go_shim.h`
-- `/opt/rocm/lib*/libgoamdsmi_shim64.so`
-
+```bash
+SRC=$(go list -m -f '{{.Dir}}' github.com/ichbinblau/goamdsmi)/goamdsmi_shim/smiwrapper
+SHIM=$HOME/goamdsmi-shim
+mkdir -p $SHIM/include $SHIM/lib
+gcc -shared -fPIC -O2 -DENABLE_DEBUG_LEVEL=0 \
+    -o $SHIM/lib/libgoamdsmi_shim64.so $SRC/amdsmi_go_shim.c \
+    -I$SRC -I/opt/rocm/include -L/opt/rocm/lib -lamd_smi -Wl,-rpath,/opt/rocm/lib
+cp $SRC/amdsmi_go_shim.h $SRC/goamdsmi.h $SHIM/include/
 ```
+
+Then build/run your program with:
+
+```bash
 export CGO_ENABLED=1
-export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/opt/rocm/lib:/opt/rocm/lib64
+export CGO_CFLAGS="-I$HOME/goamdsmi-shim/include"
+export CGO_LDFLAGS="-L$HOME/goamdsmi-shim/lib"
+export LD_LIBRARY_PATH="$HOME/goamdsmi-shim/lib:$LD_LIBRARY_PATH"
 ```
+
+(If you install the header into `/opt/rocm/include` and the library into
+`/opt/rocm/lib`, `CGO_CFLAGS`/`CGO_LDFLAGS` are not needed.)
+
+A complete working example: https://github.com/ichbinblau/amdsmi-demo-A
 
 ## License
 
 MIT (AMD). See [LICENSE](./LICENSE). This repository redistributes a subset of
-`rocm-systems/projects/amdsmi`, with the patch listed above.
+`rocm-systems/projects/amdsmi`, with the patches listed above.

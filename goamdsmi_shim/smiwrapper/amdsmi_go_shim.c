@@ -10,6 +10,20 @@
 #include <unistd.h>
 #define nullptr ((void*)0)
 
+// Compatibility with amd-smi < 27 (e.g. ROCm 7.1/7.2 ship 26.x):
+//  - the processor type enum is named processor_type_t;
+//  - amdsmi_get_processor_handles_by_type() is exported by libamd_smi but only
+//    declared under ENABLE_ESMI_LIB.
+#if AMDSMI_LIB_VERSION_MAJOR < 27
+typedef processor_type_t amdsmi_processor_type_t;
+#ifndef ENABLE_ESMI_LIB
+amdsmi_status_t amdsmi_get_processor_handles_by_type(amdsmi_socket_handle socket_handle,
+                                                     processor_type_t processor_type,
+                                                     amdsmi_processor_handle* processor_handles,
+                                                     uint32_t* processor_count);
+#endif
+#endif
+
 #define MAX_SOCKET_ACROSS_SYSTEM 4
 #define CPU_0 0
 #define GPU_SENSOR_0 0
@@ -849,6 +863,9 @@ uint64_t goamdsmi_gpu_dev_gpu_memory_total_get(uint32_t dv_ind) {
   return gpu_memory_total;
 }
 
+// UMA carveout and TTM APIs are only present in newer amd-smi; on older
+// versions these wrappers report failure (-1).
+#ifdef AMDSMI_MAX_CARVEOUT_OPTIONS
 // UMA carveout and TTM — kernel UAPI features, not libdrm.
 // 256 == AMDSMI_MAX_STRING_LENGTH (amdsmi.h)
 int32_t goamdsmi_gpu_uma_carveout_info_get(uint32_t dv_ind, uint32_t* current_index,
@@ -977,3 +994,31 @@ int32_t goamdsmi_ttm_pages_limit_reset(void) {
 
   return 0;
 }
+#else
+int32_t goamdsmi_gpu_uma_carveout_info_get(uint32_t dv_ind, uint32_t* current_index,
+                                           uint32_t* num_options, char options[][256]) {
+  (void)dv_ind;
+  (void)current_index;
+  (void)num_options;
+  (void)options;
+  return -1;
+}
+
+int32_t goamdsmi_gpu_uma_carveout_set(uint32_t dv_ind, uint32_t option_index) {
+  (void)dv_ind;
+  (void)option_index;
+  return -1;
+}
+
+int32_t goamdsmi_ttm_info_get(uint64_t* current_pages) {
+  (void)current_pages;
+  return -1;
+}
+
+int32_t goamdsmi_ttm_pages_limit_set(uint64_t pages) {
+  (void)pages;
+  return -1;
+}
+
+int32_t goamdsmi_ttm_pages_limit_reset(void) { return -1; }
+#endif  // AMDSMI_MAX_CARVEOUT_OPTIONS
