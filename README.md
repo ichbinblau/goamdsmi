@@ -20,7 +20,7 @@ module so it can be fetched normally.
 
 ## Provenance
 
-Extracted **unmodified** from:
+Extracted from:
 
 - repo:   https://github.com/ROCm/rocm-systems
 - path:   `projects/amdsmi`
@@ -28,6 +28,23 @@ Extracted **unmodified** from:
 - commit: `820ea79c1848e1291204e7f7e56ec68bd049704e`
 
 Included: `goamdsmi.go`, `goamdsmi_shim/`, `LICENSE`.
+
+### Local patches
+
+- `goamdsmi.go` (`GO_gpu_uma_carveout_info_get`): upstream casts `options` to
+  `*[16][256]C.char`, but the C parameter `char options[][256]` decays to
+  `char (*)[256]`, which cgo types as `*[256]C.char`. Upstream therefore fails
+  to compile under cgo:
+
+  ```
+  goamdsmi.go:740:3: cannot use (*[16][256]_Ctype_char)(unsafe.Pointer(options))
+      (value of type *[16][256]_Ctype_char) as *[256]_Ctype_char value
+  ```
+
+  Fixed by casting to `*[256]C.char` (same memory, pointer to first row).
+  Go API is unchanged.
+
+`goamdsmi_shim/` is unmodified.
 
 ## Install
 
@@ -60,5 +77,5 @@ export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/opt/rocm/lib:/opt/rocm/lib64
 
 ## License
 
-MIT (AMD). See [LICENSE](./LICENSE). This repository redistributes an unmodified
-subset of `rocm-systems/projects/amdsmi`.
+MIT (AMD). See [LICENSE](./LICENSE). This repository redistributes a subset of
+`rocm-systems/projects/amdsmi`, with the patch listed above.
